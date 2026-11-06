@@ -1,0 +1,71 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android scaffold and apply Handfont files
+        run: |
+          ZIP="$(ls *.zip | head -n 1)"
+          echo "Using $ZIP"
+          unzip -q -o "$ZIP" -d ../handfont_src
+          flutter create --org com.handfont --project-name glyphdraw --platforms=android ../handfont_build
+          rm -rf ../handfont_build/lib ../handfont_build/test
+          cp -r ../handfont_src/lib ../handfont_src/assets ../handfont_src/test ../handfont_src/pubspec.yaml ../handfont_build/
+          cp ../handfont_src/android_files/MainActivity.kt ../handfont_build/android/app/src/main/kotlin/com/handfont/glyphdraw/MainActivity.kt
+          python3 - <<'PY'
+          import re, pathlib
+          root = pathlib.Path("../handfont_build/android/app")
+          m = root / "src/main/AndroidManifest.xml"
+          s = m.read_text()
+          q = pathlib.Path("../handfont_src/android_files/manifest_queries.xml").read_text()
+          pkgs = "\n".join(re.findall(r"<package [^>]*/>", q))
+          if "<queries>" in s:
+              s = s.replace("<queries>", "<queries>\n" + pkgs, 1)
+          else:
+              s = s.replace("<application", "<queries>\n" + pkgs + "\n</queries>\n    <application", 1)
+          s = re.sub(r'android:label="[^"]*"', 'android:label="Handfont"', s, count=1)
+          m.write_text(s)
+          for name in ("build.gradle.kts", "build.gradle"):
+              g = root / name
+              if g.exists():
+                  t = g.read_text()
+                  t = t.replace("minSdk = flutter.minSdkVersion", "minSdk = 29")
+                  t = t.replace("minSdkVersion flutter.minSdkVersion", "minSdkVersion 29")
+                  g.write_text(t)
+          PY
+
+      - name: Analyze and test (stops here if there is any compile error)
+        working-directory: ../handfont_build
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos --no-fatal-warnings
+          flutter test
+
+      - name: Build
+        working-directory: ../handfont_build
+        run: |
+          dart run flutter_launcher_icons
+          flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Handfont-apk
+          path: ../handfont_build/build/app/outputs/flutter-apk/app-release.apk
