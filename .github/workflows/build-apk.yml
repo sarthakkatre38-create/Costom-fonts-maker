@@ -65,7 +65,7 @@ jobs:
           dart run flutter_launcher_icons
           flutter build apk --release
 
-            - name: Copy APK into the repo folder
+      - name: Copy APK into the repo folder
         run: cp ../handfont_build/build/app/outputs/flutter-apk/app-release.apk ./Handfont.apk
 
       - uses: actions/upload-artifact@v4
